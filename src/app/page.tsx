@@ -23,6 +23,7 @@ import WelcomeSection from "../../components/WelcomeSection";
 import FileUploadSection from "../../components/FileUploadSection";
 import IPDetailsSection from "../../components/IPDetailsSection";
 import LoadingSection from "../../components/LoadingSection";
+import SuccessSection from "../../components/SuccessSection";
 
 
 export default function HomePage() {
@@ -32,7 +33,10 @@ export default function HomePage() {
     string | null
   >(null);
   const [uploadedFile, setUploadedFile] = React.useState<File | null>(null);
-
+  const [mintResult, setMintResult] = React.useState<{
+    transactionHash?: string;
+    tokenId?: string;
+  } | null>(null);
 
   const [name, setName] = React.useState<string>("");
   const [provider, setProvider] = React.useState<any>(null);
@@ -77,6 +81,7 @@ export default function HomePage() {
       key="ip-details"
       uploadedFile={uploadedFile}
       setSectionIndex={setSectionIndex}
+      setMintResult={setMintResult}
     />,
 
     <LoadingSection
@@ -84,7 +89,16 @@ export default function HomePage() {
       title="Minting in progress"
       subtitle="Minting in progress. Do not move away from this page."
     />,
- 
+    <SuccessSection
+      key="success"
+      transactionHash={mintResult?.transactionHash}
+      tokenId={mintResult?.tokenId}
+      onBackToHome={() => {
+        setSectionIndex(0);
+        setUploadedFile(null);
+        setMintResult(null);
+      }}
+    />,
   ];
 
   return (

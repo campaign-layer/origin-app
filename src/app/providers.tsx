@@ -24,7 +24,10 @@ const queryClient = new QueryClient();
 export default function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
-      <CampProvider clientId="9123887d-94f0-4427-a2f7-cd04d16c1fc3">
+      <CampProvider 
+        clientId="62713a3f-71fb-4373-8a22-052396ef4e23"
+        apiKey="5479be2e-1fa2-4d31-acf3-4012ddb0e68d"
+      >
         <ParaProvider
           paraClientConfig={{
             env: Environment.PRODUCTION,

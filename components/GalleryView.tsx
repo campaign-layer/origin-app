@@ -12,12 +12,13 @@ import { useRef } from "react";
 
 
 const QUERY = gql`
-  query ipNFTs($first: Int!, $skip: Int!) {
+  query ipNFTs($first: Int!, $skip: Int!, $creator: String) {
     ipNFTs(
       first: $first
       skip: $skip
       orderBy: createdAt
       orderDirection: desc
+      ${"" /* Note: If filtering by creator is needed, add: where: { creator: $creator } */}
     ) {
       id
       tokenId
@@ -25,9 +26,7 @@ const QUERY = gql`
       attributes
       name
       description
-      backgroundColor
       image
-      parentId
       creator {
         id
       }
@@ -115,6 +114,15 @@ const GalleryView = ({ onSwitchToRemix }: { onSwitchToRemix: () => void }) => {
   const { openModal } = useModal();
   const fetchItems = async (reset = false) => {
     if (fetchingRef.current) return;
+    
+    // Check if subgraph URL is configured
+    const subgraphUrl = process.env.NEXT_PUBLIC_SUBGRAPH_URL;
+    if (!subgraphUrl) {
+      setError(new Error("Subgraph URL is not configured. Please set NEXT_PUBLIC_SUBGRAPH_URL environment variable."));
+      setLoading(false);
+      return;
+    }
+    
     fetchingRef.current = true;
     setLoading(true);
     setError(null);
@@ -139,8 +147,16 @@ const GalleryView = ({ onSwitchToRemix }: { onSwitchToRemix: () => void }) => {
         setSkip((prev) => prev + BATCH_SIZE);
         setHasMore(data.ipNFTs.length === BATCH_SIZE);
       }
-    } catch (err) {
+    } catch (err: any) {
+      console.error("Error fetching gallery items:", err);
       setError(err);
+      // Log more details about the error
+      if (err?.graphQLErrors) {
+        console.error("GraphQL errors:", err.graphQLErrors);
+      }
+      if (err?.networkError) {
+        console.error("Network error:", err.networkError);
+      }
     } finally {
       setLoading(false);
       fetchingRef.current = false;
@@ -148,7 +164,9 @@ const GalleryView = ({ onSwitchToRemix }: { onSwitchToRemix: () => void }) => {
   };
 
   useEffect(() => {
-    fetchItems(true);
+    if (wallet?.address && authenticated) {
+      fetchItems(true);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet?.address, authenticated]);
 
@@ -218,7 +236,14 @@ const GalleryView = ({ onSwitchToRemix }: { onSwitchToRemix: () => void }) => {
             }}
           />
         </div>
-      ) : null}
+      ) : (
+        items.length === 0 && !loading && !error && (
+          <div className="flex flex-col items-center justify-center gap-2 my-10">
+            <Header text="No IP NFTs found" />
+            <Description text="Mint your first IP NFT to see it here. It may take a few moments for newly minted items to appear." />
+          </div>
+        )
+      )}
       <div
         className="grid gap-6 mt-8 w-full justify-center"
         style={{

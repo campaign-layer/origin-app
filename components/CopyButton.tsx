@@ -12,6 +12,7 @@ const CopyButton: React.FC<CopyButtonProps> = ({ value, className, color }) => {
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(value);
+      toast.success("Copied to clipboard!");
     } catch (err) {
       toast.error("Failed to copy to clipboard");
     }

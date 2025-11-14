@@ -10,6 +10,7 @@ import { checkProfanity, sanitize } from "../utils/utils";
 interface IPDetailsSectionProps {
   uploadedFile: File | null;
   setSectionIndex: (index: number) => void;
+  setMintResult?: (result: { transactionHash?: string; tokenId?: string }) => void;
 }
 
 type LicenseTerms = {
@@ -22,6 +23,7 @@ type LicenseTerms = {
 const IPDetailsSection: React.FC<IPDetailsSectionProps> = ({
   uploadedFile,
   setSectionIndex,
+  setMintResult,
 }) => {
   const auth = useAuth();
   const { origin } = auth;  
@@ -98,17 +100,31 @@ const IPDetailsSection: React.FC<IPDetailsSectionProps> = ({
       const formData = new FormData();
       formData.append('file', ipfsFile);
       
+      const pinataJWT = process.env.NEXT_PUBLIC_PINATA_JWT;
+      if (!pinataJWT) {
+        throw new Error("Pinata JWT is not configured. Please set NEXT_PUBLIC_PINATA_JWT environment variable.");
+      }
+
       const response = await fetch('https://api.pinata.cloud/pinning/pinFileToIPFS', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_PINATA_JWT}`
+          'Authorization': `Bearer ${pinataJWT}`
         },
         body: formData
       });
 
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Pinata API error: ${response.status} - ${errorText}`);
+      }
+
       const result = await response.json();
+      
+      if (!result.IpfsHash) {
+        throw new Error("Pinata did not return an IPFS hash");
+      }
+      
       url = `https://gateway.pinata.cloud/ipfs/${result.IpfsHash}`;
-  
 
       if (!url) {
         throw new Error("Failed to get IPFS URL after upload");
@@ -120,19 +136,18 @@ const IPDetailsSection: React.FC<IPDetailsSectionProps> = ({
 
     } catch (error) {
       console.error("IPFS upload error:", error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
       toast.error("Failed to upload file to IPFS", {
-        description: "There was an error uploading your file. Please try again.",
+        description: errorMessage.includes("JWT") 
+          ? "Pinata JWT is not configured. Please set NEXT_PUBLIC_PINATA_JWT environment variable."
+          : `There was an error uploading your file: ${errorMessage}`,
         duration: 5000,
       });
       return;
     }
 
-    const response = await fetch(url);
-    const blob = await response.blob();
-
-    const file = new File([blob], `remix.png`, { 
-      type: 'image/png' 
-    });
+    // Use the original file instead of re-downloading from IPFS
+    const file = uploadedFile;
 
     const fileSizeMB = file.size / (1024 * 1024);
     if (fileSizeMB > 10) { // 10MB limit
@@ -144,7 +159,7 @@ const IPDetailsSection: React.FC<IPDetailsSectionProps> = ({
     }
 
     const license = {
-        price: 0n,
+        price: BigInt(0),
         duration: 2629800, // 30 days in seconds
         royaltyBps: 0,
         paymentToken: "0x0000000000000000000000000000000000000000" as Address,
@@ -152,17 +167,15 @@ const IPDetailsSection: React.FC<IPDetailsSectionProps> = ({
 
     // Create metadata similar to working sample
     const metadata = {
-        name: sanitized || "Untitled Remix",
-        description: `A unique image remix created by mAItrix`,
+        name: sanitized || "Untitled IP",
+        description: ipDescription.trim() || `A unique IP created on Camp Network`,
         image: url,
         attributes: [
           {
-            trait_type: "Base Character",
-            value: "Unknown",
-          },
-          {
             trait_type: "Type",
-            value: "Image",
+            value: uploadedFile.type.startsWith('image/') ? "Image" : 
+                   uploadedFile.type.startsWith('audio/') ? "Audio" :
+                   uploadedFile.type.startsWith('video/') ? "Video" : "File",
           },
         ],
       };
@@ -181,32 +194,88 @@ const IPDetailsSection: React.FC<IPDetailsSectionProps> = ({
   
 
 
-      await origin.mintFile(file, metadata, license);
+      const mintResult = await origin.mintFile(file, metadata, license);
+      
+      console.log("Minting successful! Full result:", JSON.stringify(mintResult, null, 2));
+      console.log("Minting result type:", typeof mintResult);
+      console.log("Minting result keys:", mintResult ? Object.keys(mintResult) : 'null');
 
-      setSectionIndex(6); // final section after minting
+      // Extract transaction hash from the result
+      // The mintFile might return different formats, so we check for common properties
+      let transactionHash: string | undefined;
+      let tokenId: string | undefined;
+
+      // Check if it's a transaction receipt (common in viem/wagmi)
+      if (mintResult && typeof mintResult === 'object') {
+        // Check for transaction receipt format
+        transactionHash = 
+          mintResult?.transactionHash || 
+          mintResult?.hash || 
+          mintResult?.txHash ||
+          mintResult?.receipt?.transactionHash ||
+          mintResult?.tx?.hash ||
+          (mintResult as any)?.transaction?.hash;
+        
+        // Check for token ID in various locations
+        tokenId = 
+          mintResult?.tokenId?.toString() || 
+          mintResult?.tokenID?.toString() ||
+          mintResult?.id?.toString() ||
+          (mintResult as any)?.tokenId?.toString() ||
+          (mintResult as any)?.nftId?.toString();
+      } else if (typeof mintResult === 'string') {
+        // If it's just a string, it might be the transaction hash
+        transactionHash = mintResult;
+      }
+
+      console.log("Extracted transaction hash:", transactionHash);
+      console.log("Extracted token ID:", tokenId);
+
+      // Store mint result for the success section
+      if (setMintResult) {
+        setMintResult({
+          transactionHash,
+          tokenId: tokenId?.toString(),
+        });
+      }
+
+      setSectionIndex(4); // success section after minting
       toast.success(`Minting successful! Your IP NFT is now live.`, {
+        description: transactionHash ? `Transaction: ${transactionHash.slice(0, 10)}...` : undefined,
         duration: 5000,
       });
       
     } catch (error) {
       console.error("Minting failed:", error);
+      console.error("Error details:", {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : undefined,
+      });
       
       // Provide more specific error messages
       let errorMessage = "Minting failed. Please try again later.";
       let errorDescription = error instanceof Error ? error.message : "An error occurred";
       
-      if (errorDescription.includes("signature") || errorDescription.includes("Failed to get signature")) {
+      // Handle "Failed to fetch" errors
+      if (errorDescription.includes("Failed to fetch") || errorDescription.includes("fetch")) {
+        errorMessage = "Network request failed.";
+        errorDescription = "There was an issue connecting to the network. Please check your internet connection and try again.";
+      } else if (errorDescription.includes("signature") || errorDescription.includes("Failed to get signature")) {
         errorMessage = "Transaction signature failed.";
         errorDescription = "Please check your wallet connection and approve the transaction when prompted.";
-      } else if (errorDescription.includes("network")) {
+      } else if (errorDescription.includes("network") || errorDescription.includes("Network")) {
         errorMessage = "Network error. Please check your connection.";
         errorDescription = "Make sure you're connected to the correct network.";
-      } else if (errorDescription.includes("gas")) {
+      } else if (errorDescription.includes("gas") || errorDescription.includes("Gas")) {
         errorMessage = "Insufficient gas fees.";
         errorDescription = "Please ensure you have enough gas for the transaction.";
       } else if (errorDescription.includes("user rejected") || errorDescription.includes("User rejected")) {
         errorMessage = "Transaction was rejected.";
         errorDescription = "You declined the transaction. Please try again and approve when prompted.";
+      } else if (errorDescription.includes("IndexedDB")) {
+        errorMessage = "Storage error.";
+        errorDescription = "There was an issue with browser storage. Please try refreshing the page.";
       }
       
       toast.error(errorMessage, {
