@@ -205,31 +205,87 @@ const IPDetailsSection: React.FC<IPDetailsSectionProps> = ({
       let transactionHash: string | undefined;
       let tokenId: string | undefined;
 
-      // Check if it's a transaction receipt (common in viem/wagmi)
+      // Helper function to safely get nested values
+      const getNestedValue = (obj: any, paths: string[]): string | undefined => {
+        for (const path of paths) {
+          const keys = path.split('.');
+          let value = obj;
+          for (const key of keys) {
+            if (value && typeof value === 'object' && key in value) {
+              value = value[key];
+            } else {
+              value = undefined;
+              break;
+            }
+          }
+          if (value && typeof value === 'string' && value.length > 0) {
+            return value;
+          }
+        }
+        return undefined;
+      };
+
+      // Check if it's a transaction receipt or transaction object (common in viem/wagmi)
       if (mintResult && typeof mintResult === 'object') {
-        // Check for transaction receipt format
-        transactionHash = 
-          mintResult?.transactionHash || 
-          mintResult?.hash || 
-          mintResult?.txHash ||
-          mintResult?.receipt?.transactionHash ||
-          mintResult?.tx?.hash ||
-          (mintResult as any)?.transaction?.hash;
+        // Try multiple possible paths for transaction hash
+        const hashPaths = [
+          'transactionHash',
+          'hash',
+          'txHash',
+          'tx.hash',
+          'transaction.hash',
+          'receipt.transactionHash',
+          'receipt.hash',
+          'wait.transactionHash', // If it's a promise that resolves
+          'result.transactionHash',
+          'data.transactionHash',
+          'response.transactionHash',
+        ];
+        
+        transactionHash = getNestedValue(mintResult, hashPaths);
+        
+        // If still not found, try to stringify and look for hash-like patterns
+        if (!transactionHash) {
+          const str = JSON.stringify(mintResult);
+          // Look for a hex string that looks like a transaction hash (0x followed by 64 hex chars)
+          const hashMatch = str.match(/0x[a-fA-F0-9]{64}/);
+          if (hashMatch) {
+            transactionHash = hashMatch[0];
+          }
+        }
         
         // Check for token ID in various locations
-        tokenId = 
-          mintResult?.tokenId?.toString() || 
-          mintResult?.tokenID?.toString() ||
-          mintResult?.id?.toString() ||
-          (mintResult as any)?.tokenId?.toString() ||
-          (mintResult as any)?.nftId?.toString();
+        const tokenIdPaths = [
+          'tokenId',
+          'tokenID',
+          'id',
+          'nftId',
+          'token.id',
+          'nft.id',
+          'result.tokenId',
+          'data.tokenId',
+        ];
+        
+        tokenId = getNestedValue(mintResult, tokenIdPaths);
+        
+        // If tokenId is a number, convert to string
+        if (tokenId && !isNaN(Number(tokenId))) {
+          tokenId = tokenId.toString();
+        }
       } else if (typeof mintResult === 'string') {
-        // If it's just a string, it might be the transaction hash
-        transactionHash = mintResult;
+        // If it's just a string, check if it looks like a transaction hash
+        if (mintResult.startsWith('0x') && mintResult.length === 66) {
+          transactionHash = mintResult;
+        }
       }
 
       console.log("Extracted transaction hash:", transactionHash);
       console.log("Extracted token ID:", tokenId);
+      
+      // If we still don't have a transaction hash, log a warning
+      if (!transactionHash) {
+        console.warn("Could not extract transaction hash from mint result. Full result:", mintResult);
+      }
 
       // Store mint result for the success section
       if (setMintResult) {

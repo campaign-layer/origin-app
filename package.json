@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@apollo/client": "^3.13.8",
-    "@campnetwork/origin": "^0.0.10",
+    "@campnetwork/origin": "^1.2.0-4",
     "@getpara/evm-wallet-connectors": "^1.18.1",
     "@getpara/react-sdk": "^1.18.1",
     "@tanstack/react-query": "^5.83.0",

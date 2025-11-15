@@ -10,6 +10,7 @@ import {
   useAuthState,
   useModal as useCampModal,
   useConnect,
+  useAuth,
 } from "@campnetwork/origin/react";
 import {
   useModal,
@@ -41,6 +42,7 @@ export default function HomePage() {
   const [name, setName] = React.useState<string>("");
   const [provider, setProvider] = React.useState<any>(null);
   const { authenticated } = useAuthState();
+  const auth = useAuth();
   const { disconnect } = useConnect();
   const { openModal: openCampModal } = useCampModal();
   const { data: wallet } = useWallet();
@@ -50,16 +52,31 @@ export default function HomePage() {
 
   useEffect(() => {
     let timeoutId: NodeJS.Timeout | number | undefined;
-    if (wallet?.address) {
-      timeoutId = setTimeout(async () => {
-        const newProvider = await generateProvider(acc);
-        setProvider(newProvider);
-      }, 200);
+    
+    // Only set provider if wallet address matches authenticated Origin address
+    if (wallet?.address && authenticated && auth.walletAddress) {
+      const walletAddress = wallet.address.toLowerCase();
+      const originAddress = auth.walletAddress.toLowerCase();
+      
+      // Only set provider if addresses match
+      if (walletAddress === originAddress) {
+        timeoutId = setTimeout(async () => {
+          const newProvider = await generateProvider(acc);
+          setProvider(newProvider);
+        }, 200);
+      } else {
+        // Addresses don't match, clear provider
+        setProvider(null);
+      }
+    } else if (!wallet?.address || !authenticated) {
+      // Clear provider if wallet disconnected or not authenticated
+      setProvider(null);
     }
+    
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [acc, wallet?.address]);
+  }, [acc, wallet?.address, authenticated, auth.walletAddress]);
 
   const sections = [
     <WelcomeSection
@@ -116,7 +133,18 @@ export default function HomePage() {
             {sections[sectionIndex]}
           </AnimatePresence>
         )}
-        <CampModal defaultProvider={provider} injectButton={false} />
+        <CampModal 
+          defaultProvider={
+            provider && 
+            wallet?.address && 
+            authenticated && 
+            auth.walletAddress &&
+            wallet.address.toLowerCase() === auth.walletAddress.toLowerCase()
+              ? provider 
+              : undefined
+          } 
+          injectButton={false} 
+        />
         <ParaModal
           appName="Camp"
           oAuthMethods={[OAuthMethod.GOOGLE, OAuthMethod.TWITTER]}
